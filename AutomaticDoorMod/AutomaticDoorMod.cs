@@ -12,12 +12,12 @@ namespace AutomaticDoorMod
     public class AutomaticDoorMod : BaseUnityPlugin
     {
         public static ConfigEntry<bool> isEnabled;
-        public static ConfigEntry<float> waitTimeForDoorToClose;
+        public static ConfigEntry<float> waitForDoorToCloseSeconds;
 
         private void Awake()
         {
             isEnabled = Config.Bind<bool>("General", "IsEnabled", true, "If you set this to false, this mod will be disabled.");
-            waitTimeForDoorToClose = Config.Bind<float>("General", "waitTimeForDoorToClose", 5, "Specify the time to wait for the door to close automatically.");
+            waitForDoorToCloseSeconds = Config.Bind<float>("General", "waitForDoorToCloseSeconds", 5, "Specify the time in seconds to wait for the door to close automatically.");
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
         }
@@ -32,7 +32,7 @@ namespace AutomaticDoorMod
                     return;
                 }
 
-                IEnumerator enumerator = DoorCloseDelay(AutomaticDoorMod.waitTimeForDoorToClose.Value, () =>
+                IEnumerator enumerator = DoorCloseDelay(AutomaticDoorMod.waitForDoorToCloseSeconds.Value, () =>
                 {
                     ___m_nview.GetZDO().Set("state", 0);
                 });
