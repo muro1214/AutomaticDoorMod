@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace AutomaticDoorMod
 {
-    [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", "0.0.1")]
+    [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", "0.0.2")]
     public class AutomaticDoorMod : BaseUnityPlugin
     {
         public static ConfigEntry<bool> isEnabled;
@@ -25,9 +25,12 @@ namespace AutomaticDoorMod
         [HarmonyPatch(typeof(Door), "Interact")]
         public static class AutomaticDoor
         {
-            private static void Postfix(ZNetView ___m_nview, ref ItemDrop ___m_keyItem)
+            public static bool isInsideSunkenCrypt = false;
+
+            private static void Postfix(ref Door __instance, ZNetView ___m_nview, ref ItemDrop ___m_keyItem)
             {
-                if (!AutomaticDoorMod.isEnabled.Value || ___m_keyItem != null)
+                // ___m_keyItem: CryptKey
+                if (!AutomaticDoorMod.isEnabled.Value || ___m_keyItem != null || isInsideSunkenCrypt)
                 {
                     return;
                 }
@@ -46,6 +49,33 @@ namespace AutomaticDoorMod
                 yield return new WaitForSeconds(wait_time);
 
                 action?.Invoke();
+            }
+        }
+
+        [HarmonyPatch(typeof(EnvMan), "SetForceEnvironment")]
+        public static class SwitchModEnable
+        {
+            private static void Prefix(string env, ref string ___m_forceEnv)
+            {
+                if (!AutomaticDoorMod.isEnabled.Value)
+                {
+                    return;
+                }
+
+                if(___m_forceEnv == env)
+                {
+                    return;
+                }
+
+                AutomaticDoor.isInsideSunkenCrypt = env.Contains("SunkenCrypt");
+                if (AutomaticDoor.isInsideSunkenCrypt)
+                {
+                    Debug.Log("MOD disabled because player has entered SunkenCrypt.");
+                }
+                else
+                {
+                    Debug.Log("MOD enabled because player has exited SunkenCrypt.");
+                }
             }
         }
     }
