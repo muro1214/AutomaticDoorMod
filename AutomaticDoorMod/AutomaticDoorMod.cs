@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace AutomaticDoorMod
 {
-    [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", "0.0.2")]
+    [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", "0.0.3")]
     public class AutomaticDoorMod : BaseUnityPlugin
     {
         public static ConfigEntry<bool> isEnabled;
@@ -25,12 +25,12 @@ namespace AutomaticDoorMod
         [HarmonyPatch(typeof(Door), "Interact")]
         public static class AutomaticDoor
         {
-            public static bool isInsideSunkenCrypt = false;
+            public static bool isInsideCrypt = false;
 
             private static void Postfix(ref Door __instance, ZNetView ___m_nview, ref ItemDrop ___m_keyItem)
             {
                 // ___m_keyItem: CryptKey
-                if (!AutomaticDoorMod.isEnabled.Value || ___m_keyItem != null || isInsideSunkenCrypt)
+                if (!AutomaticDoorMod.isEnabled.Value || ___m_keyItem != null || isInsideCrypt)
                 {
                     return;
                 }
@@ -67,14 +67,14 @@ namespace AutomaticDoorMod
                     return;
                 }
 
-                AutomaticDoor.isInsideSunkenCrypt = env.Contains("SunkenCrypt");
-                if (AutomaticDoor.isInsideSunkenCrypt)
+                AutomaticDoor.isInsideCrypt = env.Contains("Crypt");
+                if (AutomaticDoor.isInsideCrypt)
                 {
-                    Debug.Log("MOD disabled because player has entered SunkenCrypt.");
+                    Debug.Log("MOD disabled because player has entered Crypt.");
                 }
                 else
                 {
-                    Debug.Log("MOD enabled because player has exited SunkenCrypt.");
+                    Debug.Log("MOD enabled because player has exited Crypt.");
                 }
             }
         }
