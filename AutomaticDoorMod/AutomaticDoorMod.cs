@@ -8,9 +8,11 @@ using UnityEngine;
 
 namespace AutomaticDoorMod
 {
-    [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", "0.0.3")]
-    public class AutomaticDoorMod : BaseUnityPlugin
+    [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", toolVersion)]
+    public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
+        public const string toolVersion = "0.0.4";
+
         public static ConfigEntry<bool> isEnabled;
         public static ConfigEntry<float> waitForDoorToCloseSeconds;
 
@@ -30,12 +32,12 @@ namespace AutomaticDoorMod
             private static void Postfix(ref Door __instance, ZNetView ___m_nview, ref ItemDrop ___m_keyItem)
             {
                 // ___m_keyItem: CryptKey
-                if (!AutomaticDoorMod.isEnabled.Value || ___m_keyItem != null || isInsideCrypt)
+                if (!AutomaticDoorModPlugin.isEnabled.Value || ___m_keyItem != null || isInsideCrypt)
                 {
                     return;
                 }
 
-                IEnumerator enumerator = DoorCloseDelay(AutomaticDoorMod.waitForDoorToCloseSeconds.Value, () =>
+                IEnumerator enumerator = DoorCloseDelay(AutomaticDoorModPlugin.waitForDoorToCloseSeconds.Value, () =>
                 {
                     ___m_nview.GetZDO().Set("state", 0);
                 });
@@ -57,7 +59,7 @@ namespace AutomaticDoorMod
         {
             private static void Prefix(string env, ref string ___m_forceEnv)
             {
-                if (!AutomaticDoorMod.isEnabled.Value)
+                if (!AutomaticDoorModPlugin.isEnabled.Value)
                 {
                     return;
                 }
