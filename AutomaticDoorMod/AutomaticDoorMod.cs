@@ -3,6 +3,7 @@ using BepInEx.Configuration;
 using HarmonyLib;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -11,17 +12,24 @@ namespace AutomaticDoorMod
     [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", toolVersion)]
     public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
-        public const string toolVersion = "0.0.4";
+        public const string toolVersion = "0.1.0";
+        public static bool isDebug = true;
 
         public static ConfigEntry<bool> isEnabled;
         public static ConfigEntry<float> waitForDoorToCloseSeconds;
+        public static ConfigEntry<float> searchRangeToOpenDoor;
+        public static ConfigEntry<bool> isNotAutoOpenDoorInCrypt;
         public static ConfigEntry<string> toggleSwitchModKey;
         public static ConfigEntry<string> toggleSwitchKey;
+
+        public static Dictionary<int, Coroutine> coroutinePairs = new Dictionary<int, Coroutine>();
 
         private void Awake()
         {
             isEnabled = Config.Bind<bool>("General", "IsEnabled", true, "If you set this to false, this mod will be disabled.");
-            waitForDoorToCloseSeconds = Config.Bind<float>("General", "waitForDoorToCloseSeconds", 5, "Specify the time in seconds to wait for the door to close automatically.");
+            waitForDoorToCloseSeconds = Config.Bind<float>("General", "waitForDoorToCloseSeconds", 5.0f, "Specify the time in seconds to wait for the door to close automatically.");
+            searchRangeToOpenDoor = Config.Bind<float>("General", "searchRangeToOpenDoor", 4.0f, "");
+            isNotAutoOpenDoorInCrypt = Config.Bind<bool>("General", "isNotAutoOpenDoorInCrypt", true, "");
             toggleSwitchModKey = Config.Bind<string>("General", "toggleSwitchModKey", "left alt", "Specifies the MOD Key of toggleSwitchKey. If left blank, it is not used.");
             toggleSwitchKey = Config.Bind<string>("General", "toggleSwitchKey", "f10", "Toggles between enabled and disabled mods when this key is pressed.");
 
@@ -29,14 +37,14 @@ namespace AutomaticDoorMod
         }
 
         [HarmonyPatch(typeof(Door), "Interact")]
-        public static class AutomaticDoor
+        public static class AutomaticDoorClose
         {
             public static bool isInsideCrypt = false;
             public static bool toggleSwitch = true;
 
             private static void Postfix(ref Door __instance, ZNetView ___m_nview)
             {
-                if (!AutomaticDoorModPlugin.isEnabled.Value || // when mod is disabled
+                if (!isEnabled.Value || // when mod is disabled
                     __instance.m_keyItem != null || // when target door needs keyItem (e.g. CryptKey)
                     isInsideCrypt || // when player is in Crypt
                     !toggleSwitch) // when a player manually disables a mod
@@ -44,20 +52,77 @@ namespace AutomaticDoorMod
                     return;
                 }
 
-                IEnumerator enumerator = DoorCloseDelay(AutomaticDoorModPlugin.waitForDoorToCloseSeconds.Value, () =>
+                if(coroutinePairs.ContainsKey(___m_nview.GetHashCode()))
                 {
-                    ___m_nview.GetZDO().Set("state", 0);
-                });
+                    ___m_nview.StopCoroutine(coroutinePairs[___m_nview.GetHashCode()]);
+                }
 
-                ___m_nview.StopAllCoroutines();
-                ___m_nview.StartCoroutine(enumerator);
+                Coroutine coroutine = ___m_nview.StartCoroutine(DoorCloseDelay(() => {
+                    ___m_nview.GetZDO().Set("state", 0);
+                }));
+
+                coroutinePairs[___m_nview.GetHashCode()] = coroutine;
             }
 
-            private static IEnumerator DoorCloseDelay(float wait_time, Action action)
+            private static IEnumerator DoorCloseDelay(Action action)
             {
-                yield return new WaitForSeconds(wait_time);
+                yield return new WaitForSeconds(waitForDoorToCloseSeconds.Value);
 
                 action?.Invoke();
+            }
+        }
+
+        [HarmonyPatch(typeof(Door), "Awake")]
+        public static class AutomaticDoorOpen
+        {
+            private static void Postfix(Door __instance, ref ZNetView ___m_nview)
+            {
+                if (!isEnabled.Value || // when mod is disabled
+                    __instance.m_keyItem != null || // when target door needs keyItem (e.g. CryptKey)
+                    (isNotAutoOpenDoorInCrypt.Value && AutomaticDoorClose.isInsideCrypt) || // when player is in Crypt
+                    !AutomaticDoorClose.toggleSwitch) // when a player manually disables a mod
+                {
+                    return;
+                }
+
+                ___m_nview.StartCoroutine(AutoInteract(__instance, ___m_nview));
+            }
+
+            private static IEnumerator AutoInteract(Door __instance, ZNetView ___m_nview)
+            {
+                bool isAlreadyEntered = false;
+
+                while (true)
+                {
+                    yield return new WaitForSeconds(0.2f);
+
+                    if (isNotAutoOpenDoorInCrypt.Value && AutomaticDoorClose.isInsideCrypt)
+                    {
+                        continue;
+                    }
+
+                    Player localPlayer = Player.m_localPlayer;
+                    if(localPlayer == null || __instance == null)
+                    {
+                        continue;
+                    }
+
+                    if (___m_nview.GetZDO().GetInt("state", 0) != 0)
+                    {
+                        continue;
+                    }
+
+                    float distance = Vector3.Distance(localPlayer.transform.position, __instance.m_doorObject.transform.position + Vector3.down);
+                    if (distance <= searchRangeToOpenDoor.Value && !isAlreadyEntered)
+                    {
+                        __instance.Interact(localPlayer, false);
+                        isAlreadyEntered = true;
+                    }
+                    else if(distance > searchRangeToOpenDoor.Value && isAlreadyEntered)
+                    {
+                        isAlreadyEntered = false;
+                    }
+                }
             }
         }
 
@@ -68,7 +133,7 @@ namespace AutomaticDoorMod
 
             private static void Prefix(Collider collider, ref EnvZone __instance)
             {
-                if (!AutomaticDoorModPlugin.isEnabled.Value)
+                if (!isEnabled.Value)
                 {
                     return;
                 }
@@ -86,7 +151,7 @@ namespace AutomaticDoorMod
                 
                 if (__instance.m_environment.Contains("Crypt"))
                 {
-                    AutomaticDoor.isInsideCrypt = true;
+                    AutomaticDoorClose.isInsideCrypt = true;
                     currentEnv = __instance.m_environment;
                 }
             }
@@ -95,9 +160,9 @@ namespace AutomaticDoorMod
         [HarmonyPatch(typeof(EnvZone), "OnTriggerExit")]
         public static class EnableModWhenCryptExit
         {
-            private static void Prefix(Collider collider, ref EnvZone __instance)
+            private static void Prefix(Collider collider)
             {
-                if (!AutomaticDoorModPlugin.isEnabled.Value)
+                if (!isEnabled.Value)
                 {
                     return;
                 }
@@ -108,17 +173,17 @@ namespace AutomaticDoorMod
                     return;
                 }
 
-                AutomaticDoor.isInsideCrypt = false;
+                AutomaticDoorClose.isInsideCrypt = false;
             }
         }
 
         [HarmonyPatch(typeof(Player), "Update")]
         public static class ToggleSwitch
         {
-            private static bool isToggleKeyPressed()
+            private static bool IsToggleKeyPressed()
             {
-                string modKey = AutomaticDoorModPlugin.toggleSwitchModKey.Value.ToLower();
-                string key = AutomaticDoorModPlugin.toggleSwitchKey.Value.ToLower();
+                string modKey = toggleSwitchModKey.Value.ToLower();
+                string key = toggleSwitchKey.Value.ToLower();
 
                 if(modKey.Equals("") || Input.GetKey(modKey))
                 {
@@ -133,7 +198,7 @@ namespace AutomaticDoorMod
 
             private static void Postfix(Player __instance)
             {
-                if (!AutomaticDoorModPlugin.isEnabled.Value)
+                if (!isEnabled.Value)
                 {
                     return;
                 }
@@ -143,10 +208,10 @@ namespace AutomaticDoorMod
                     return;
                 }
 
-                if (isToggleKeyPressed())
+                if (IsToggleKeyPressed())
                 {
-                    AutomaticDoor.toggleSwitch = !AutomaticDoor.toggleSwitch;
-                    if (AutomaticDoor.toggleSwitch)
+                    AutomaticDoorClose.toggleSwitch = !AutomaticDoorClose.toggleSwitch;
+                    if (AutomaticDoorClose.toggleSwitch)
                     {
                         MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: Enabled");
                     }
@@ -155,6 +220,36 @@ namespace AutomaticDoorMod
                         MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: Disabled");
                     }
                 }
+            }
+        }
+
+        [HarmonyPatch(typeof(ZSteamMatchmaking), "VerifySessionTicket")]
+        public static class DebugModePatch1
+        {
+            private static bool Prefix(ref bool __result)
+            {
+                if (isDebug)
+                {
+                    __result = true;
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ZNet), "IsConnected")]
+        public static class DebugModePatch2
+        {
+            private static bool Prefix(ref bool __result)
+            {
+                if (isDebug)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                return true;
             }
         }
     }
