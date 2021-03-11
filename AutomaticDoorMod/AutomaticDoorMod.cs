@@ -17,8 +17,9 @@ namespace AutomaticDoorMod
 
         public static ConfigEntry<bool> isEnabled;
         public static ConfigEntry<float> waitForDoorToCloseSeconds;
-        public static ConfigEntry<float> searchRangeToOpenDoor;
-        public static ConfigEntry<bool> isNotAutoOpenDoorInCrypt;
+        public static ConfigEntry<float> automaticDoorCloseRange;
+        public static ConfigEntry<float> automaticDoorOpenRange;
+        public static ConfigEntry<bool> disableAutomaticDoorOpenInCrypt;
         public static ConfigEntry<string> toggleSwitchModKey;
         public static ConfigEntry<string> toggleSwitchKey;
 
@@ -28,8 +29,9 @@ namespace AutomaticDoorMod
         {
             isEnabled = Config.Bind<bool>("General", "IsEnabled", true, "If you set this to false, this mod will be disabled.");
             waitForDoorToCloseSeconds = Config.Bind<float>("General", "waitForDoorToCloseSeconds", 5.0f, "Specify the time in seconds to wait for the door to close automatically.");
-            searchRangeToOpenDoor = Config.Bind<float>("General", "searchRangeToOpenDoor", 4.0f, "");
-            isNotAutoOpenDoorInCrypt = Config.Bind<bool>("General", "isNotAutoOpenDoorInCrypt", true, "");
+            automaticDoorCloseRange = Config.Bind<float>("General", "automaticDoorCloseRange", 4.0f, "Doors DO NOT CLOSE automatically when a player is in range.\nIf set to 0, the door will automatically close regardless of distance.");
+            automaticDoorOpenRange = Config.Bind<float>("General", "automaticDoorOpenRange", 4.0f, "When a player is within range, the door will open automatically.\nIf set to 0, this feature is disabled.");
+            disableAutomaticDoorOpenInCrypt = Config.Bind<bool>("General", "disableAutomaticDoorOpenInCrypt", true, "If set to true, disables the setting that automatically opens the door when you are inside Crypt.");
             toggleSwitchModKey = Config.Bind<string>("General", "toggleSwitchModKey", "left alt", "Specifies the MOD Key of toggleSwitchKey. If left blank, it is not used.");
             toggleSwitchKey = Config.Bind<string>("General", "toggleSwitchKey", "f10", "Toggles between enabled and disabled mods when this key is pressed.");
 
@@ -57,18 +59,32 @@ namespace AutomaticDoorMod
                     ___m_nview.StopCoroutine(coroutinePairs[___m_nview.GetHashCode()]);
                 }
 
-                Coroutine coroutine = ___m_nview.StartCoroutine(DoorCloseDelay(() => {
-                    ___m_nview.GetZDO().Set("state", 0);
-                }));
+                Debug.Log("m_doorObject pos: " + __instance.m_doorObject.transform.position);
+                Debug.Log("___m_nview pos: " + ___m_nview.transform.position);
+                // プレイヤーがドアの範囲内にいるときは自動で閉じない
+                // 5秒経った後でも離れたタイミングで閉じる？
 
+                Coroutine coroutine = ___m_nview.StartCoroutine(AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
                 coroutinePairs[___m_nview.GetHashCode()] = coroutine;
             }
 
-            private static IEnumerator DoorCloseDelay(Action action)
+            private static IEnumerator AutoCloseEnumerator(GameObject m_doorObject, ZNetView ___m_nview)
             {
-                yield return new WaitForSeconds(waitForDoorToCloseSeconds.Value);
+                while (true)
+                {
+                    yield return new WaitForSeconds(waitForDoorToCloseSeconds.Value);
 
-                action?.Invoke();
+                    float distance = Utils.GetPlayerDistance(m_doorObject);
+                    if (distance > automaticDoorCloseRange.Value)
+                    {
+                        ___m_nview.GetZDO().Set("state", 0);
+                        yield break;
+                    }
+                    else
+                    {
+                        Debug.Log("プレイヤーが居るから閉じないことにする");
+                    }
+                }
             }
         }
 
@@ -79,16 +95,16 @@ namespace AutomaticDoorMod
             {
                 if (!isEnabled.Value || // when mod is disabled
                     __instance.m_keyItem != null || // when target door needs keyItem (e.g. CryptKey)
-                    (isNotAutoOpenDoorInCrypt.Value && AutomaticDoorClose.isInsideCrypt) || // when player is in Crypt
+                    (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt) || // when player is in Crypt
                     !AutomaticDoorClose.toggleSwitch) // when a player manually disables a mod
                 {
                     return;
                 }
 
-                ___m_nview.StartCoroutine(AutoInteract(__instance, ___m_nview));
+                ___m_nview.StartCoroutine(AutoOpenEnumerator(__instance, ___m_nview));
             }
 
-            private static IEnumerator AutoInteract(Door __instance, ZNetView ___m_nview)
+            private static IEnumerator AutoOpenEnumerator(Door __instance, ZNetView ___m_nview)
             {
                 bool isAlreadyEntered = false;
 
@@ -96,7 +112,7 @@ namespace AutomaticDoorMod
                 {
                     yield return new WaitForSeconds(0.2f);
 
-                    if (isNotAutoOpenDoorInCrypt.Value && AutomaticDoorClose.isInsideCrypt)
+                    if (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt)
                     {
                         continue;
                     }
@@ -112,13 +128,13 @@ namespace AutomaticDoorMod
                         continue;
                     }
 
-                    float distance = Vector3.Distance(localPlayer.transform.position, __instance.m_doorObject.transform.position + Vector3.down);
-                    if (distance <= searchRangeToOpenDoor.Value && !isAlreadyEntered)
+                    float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
+                    if (distance <= automaticDoorOpenRange.Value && !isAlreadyEntered)
                     {
                         __instance.Interact(localPlayer, false);
                         isAlreadyEntered = true;
                     }
-                    else if(distance > searchRangeToOpenDoor.Value && isAlreadyEntered)
+                    else if(distance > automaticDoorOpenRange.Value && isAlreadyEntered)
                     {
                         isAlreadyEntered = false;
                     }
@@ -213,13 +229,27 @@ namespace AutomaticDoorMod
                     AutomaticDoorClose.toggleSwitch = !AutomaticDoorClose.toggleSwitch;
                     if (AutomaticDoorClose.toggleSwitch)
                     {
-                        MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: Enabled");
+                        Utils.ShowMessage("Enabled");
                     }
                     else
                     {
-                        MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: Disabled");
+                        Utils.ShowMessage("Disabled");
                     }
                 }
+            }
+        }
+
+        public static class Utils
+        {
+
+            public static float GetPlayerDistance(GameObject m_doorObject)
+            {
+                return Vector3.Distance(Player.m_localPlayer.transform.position, m_doorObject.transform.position);
+            }
+
+            public static void ShowMessage(string message)
+            {
+                MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: " + message);
             }
         }
 
