@@ -61,54 +61,12 @@ namespace AutomaticDoorMod
             }
         }
 
-        [HarmonyPatch(typeof(EnvZone), "OnTriggerStay")]
-        public static class DisableModWhenCryptStay
+        [HarmonyPatch(typeof(EnvMan), "SetForceEnvironment")]
+        public static class SetForceEnvironmentPatch
         {
-            private static string currentEnv = "";
-
-            private static void Prefix(Collider collider, ref EnvZone __instance)
+            private static void Postfix(string ___m_forceEnv)
             {
-                if (!AutomaticDoorModPlugin.isEnabled.Value)
-                {
-                    return;
-                }
-
-                if(currentEnv == __instance.m_environment)
-                {
-                    return;
-                }
-
-                Player component = collider.GetComponent<Player>();
-                if(component == null || Player.m_localPlayer != component)
-                {
-                    return;
-                }
-                
-                if (__instance.m_environment.Contains("Crypt"))
-                {
-                    AutomaticDoor.isInsideCrypt = true;
-                    currentEnv = __instance.m_environment;
-                }
-            }
-        }
-
-        [HarmonyPatch(typeof(EnvZone), "OnTriggerExit")]
-        public static class EnableModWhenCryptExit
-        {
-            private static void Prefix(Collider collider, ref EnvZone __instance)
-            {
-                if (!AutomaticDoorModPlugin.isEnabled.Value)
-                {
-                    return;
-                }
-
-                Player component = collider.GetComponent<Player>();
-                if (component == null || Player.m_localPlayer != component)
-                {
-                    return;
-                }
-
-                AutomaticDoor.isInsideCrypt = false;
+                AutomaticDoor.isInsideCrypt = ___m_forceEnv.Contains("Crypt");
             }
         }
 
