@@ -61,8 +61,8 @@ namespace AutomaticDoorMod
 
                 Debug.Log("m_doorObject pos: " + __instance.m_doorObject.transform.position);
                 Debug.Log("___m_nview pos: " + ___m_nview.transform.position);
-                // „Éó„É¨„Ç§„É§„Éº„Åå„Éâ„Ç¢„ÅÆÁØÑÂõ≤ÂÜÖ„Å´„ÅÑ„Çã„Å®„Åç„ÅØËá™Âãï„ÅßÈñâ„Åò„Å™„ÅÑ
-                // 5ÁßíÁµå„Å£„ÅüÂæå„Åß„ÇÇÈõ¢„Çå„Åü„Çø„Ç§„Éü„É≥„Ç∞„ÅßÈñâ„Åò„ÇãÔºü
+                // ÉvÉåÉCÉÑÅ[Ç™ÉhÉAÇÃîÕàÕì‡Ç…Ç¢ÇÈÇ∆Ç´ÇÕé©ìÆÇ≈ï¬Ç∂Ç»Ç¢
+                // 5ïbåoÇ¡ÇΩå„Ç≈Ç‡ó£ÇÍÇΩÉ^ÉCÉ~ÉìÉOÇ≈ï¬Ç∂ÇÈÅH
 
                 Coroutine coroutine = ___m_nview.StartCoroutine(AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
                 coroutinePairs[___m_nview.GetHashCode()] = coroutine;
@@ -82,114 +82,18 @@ namespace AutomaticDoorMod
                     }
                     else
                     {
-                        Debug.Log("„Éó„É¨„Ç§„É§„Éº„ÅåÂ±Ö„Çã„Åã„ÇâÈñâ„Åò„Å™„ÅÑ„Åì„Å®„Å´„Åô„Çã");
+                        Debug.Log("ÉvÉåÉCÉÑÅ[Ç™ãèÇÈÇ©ÇÁï¬Ç∂Ç»Ç¢Ç±Ç∆Ç…Ç∑ÇÈ");
                     }
                 }
             }
         }
 
-        [HarmonyPatch(typeof(Door), "Awake")]
-        public static class AutomaticDoorOpen
+        [HarmonyPatch(typeof(EnvMan), "SetForceEnvironment")]
+        public static class SetForceEnvironmentPatch
         {
-            private static void Postfix(Door __instance, ref ZNetView ___m_nview)
+            private static void Postfix(string ___m_forceEnv)
             {
-                if (!isEnabled.Value || // when mod is disabled
-                    __instance.m_keyItem != null || // when target door needs keyItem (e.g. CryptKey)
-                    (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt) || // when player is in Crypt
-                    !AutomaticDoorClose.toggleSwitch) // when a player manually disables a mod
-                {
-                    return;
-                }
-
-                ___m_nview.StartCoroutine(AutoOpenEnumerator(__instance, ___m_nview));
-            }
-
-            private static IEnumerator AutoOpenEnumerator(Door __instance, ZNetView ___m_nview)
-            {
-                bool isAlreadyEntered = false;
-
-                while (true)
-                {
-                    yield return new WaitForSeconds(0.2f);
-
-                    if (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt)
-                    {
-                        continue;
-                    }
-
-                    Player localPlayer = Player.m_localPlayer;
-                    if(localPlayer == null || __instance == null)
-                    {
-                        continue;
-                    }
-
-                    if (___m_nview.GetZDO().GetInt("state", 0) != 0)
-                    {
-                        continue;
-                    }
-
-                    float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
-                    if (distance <= automaticDoorOpenRange.Value && !isAlreadyEntered)
-                    {
-                        __instance.Interact(localPlayer, false);
-                        isAlreadyEntered = true;
-                    }
-                    else if(distance > automaticDoorOpenRange.Value && isAlreadyEntered)
-                    {
-                        isAlreadyEntered = false;
-                    }
-                }
-            }
-        }
-
-        [HarmonyPatch(typeof(EnvZone), "OnTriggerStay")]
-        public static class DisableModWhenCryptStay
-        {
-            private static string currentEnv = "";
-
-            private static void Prefix(Collider collider, ref EnvZone __instance)
-            {
-                if (!isEnabled.Value)
-                {
-                    return;
-                }
-
-                if(currentEnv == __instance.m_environment)
-                {
-                    return;
-                }
-
-                Player component = collider.GetComponent<Player>();
-                if(component == null || Player.m_localPlayer != component)
-                {
-                    return;
-                }
-                
-                if (__instance.m_environment.Contains("Crypt"))
-                {
-                    AutomaticDoorClose.isInsideCrypt = true;
-                    currentEnv = __instance.m_environment;
-                }
-            }
-        }
-
-        [HarmonyPatch(typeof(EnvZone), "OnTriggerExit")]
-        public static class EnableModWhenCryptExit
-        {
-            private static void Prefix(Collider collider)
-            {
-                if (!isEnabled.Value)
-                {
-                    return;
-                }
-
-                Player component = collider.GetComponent<Player>();
-                if (component == null || Player.m_localPlayer != component)
-                {
-                    return;
-                }
-
-                AutomaticDoorClose.isInsideCrypt = false;
+                AutomaticDoor.isInsideCrypt = ___m_forceEnv.Contains("Crypt");
             }
         }
 
