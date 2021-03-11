@@ -13,18 +13,36 @@ namespace AutomaticDoorMod
     public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
         public const string toolVersion = "0.1.0";
+        // デバッグ用フラグ。リリース時はfalseにする
         public static bool isDebug = true;
 
+        // MODが有効化されているか？
         public static ConfigEntry<bool> isEnabled;
+        // ドアを開いてから自動で閉じるまでの待ち時間
         public static ConfigEntry<float> waitForDoorToCloseSeconds;
+        // この範囲内にプレイヤーが居るときはドアを閉じない
         public static ConfigEntry<float> automaticDoorCloseRange;
+        // この範囲内にプレイヤーが居るときにドアを自動で開く
         public static ConfigEntry<float> automaticDoorOpenRange;
+        // Crypt内にいるときに自動でドアを開くか？
         public static ConfigEntry<bool> disableAutomaticDoorOpenInCrypt;
+        // ホットキー
         public static ConfigEntry<string> toggleSwitchModKey;
         public static ConfigEntry<string> toggleSwitchKey;
 
+        // ドアと実行中のコルーチンの組み合わせ
         public static Dictionary<int, Coroutine> coroutinePairs = new Dictionary<int, Coroutine>();
 
+        // デバッグ中のログ表示
+        public static void DebugLog(string message)
+        {
+            if (isDebug)
+            {
+                Debug.Log(message);
+            }
+        }
+
+        // プラグインの初期設定
         private void Awake()
         {
             isEnabled = Config.Bind<bool>("General", "IsEnabled", true, "If you set this to false, this mod will be disabled.");
@@ -38,6 +56,7 @@ namespace AutomaticDoorMod
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
         }
 
+        // 自動でドアを閉じる処理
         [HarmonyPatch(typeof(Door), "Interact")]
         public static class AutomaticDoorClose
         {
@@ -46,10 +65,10 @@ namespace AutomaticDoorMod
 
             private static void Postfix(ref Door __instance, ZNetView ___m_nview)
             {
-                if (!isEnabled.Value || // when mod is disabled
-                    __instance.m_keyItem != null || // when target door needs keyItem (e.g. CryptKey)
-                    isInsideCrypt || // when player is in Crypt
-                    !toggleSwitch) // when a player manually disables a mod
+                if (!isEnabled.Value || // MODが無効化されている
+                    __instance.m_keyItem != null || // 対象のドアに鍵が必要
+                    isInsideCrypt || // プレイヤーがCrypt内にいる
+                    !toggleSwitch) // トグルスイッチでMODが無効化されている
                 {
                     return;
                 }
@@ -59,10 +78,11 @@ namespace AutomaticDoorMod
                     ___m_nview.StopCoroutine(coroutinePairs[___m_nview.GetHashCode()]);
                 }
 
-                Debug.Log("m_doorObject pos: " + __instance.m_doorObject.transform.position);
-                Debug.Log("___m_nview pos: " + ___m_nview.transform.position);
-                // �v���C���[���h�A�͈͓̔��ɂ���Ƃ��͎����ŕ��Ȃ�
-                // 5�b�o������ł����ꂽ�^�C�~���O�ŕ���H
+                DebugLog("m_doorObject pos: " + __instance.m_doorObject.transform.position);
+                DebugLog("___m_nview pos: " + ___m_nview.transform.position);
+                // TODO;
+                // プレイヤーがドアの範囲内にいるときは自動で閉じない
+                // 5秒経った後でも離れたタイミングで閉じる？
 
                 Coroutine coroutine = ___m_nview.StartCoroutine(AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
                 coroutinePairs[___m_nview.GetHashCode()] = coroutine;
@@ -72,8 +92,10 @@ namespace AutomaticDoorMod
             {
                 while (true)
                 {
+                    // 一定時間待機
                     yield return new WaitForSeconds(waitForDoorToCloseSeconds.Value);
 
+                    // プレイヤーとの距離を取得し、指定された範囲より離れているときはドアを閉じる
                     float distance = Utils.GetPlayerDistance(m_doorObject);
                     if (distance > automaticDoorCloseRange.Value)
                     {
@@ -82,21 +104,83 @@ namespace AutomaticDoorMod
                     }
                     else
                     {
-                        Debug.Log("�v���C���[�����邩����Ȃ����Ƃɂ���");
+                        DebugLog("プレイヤーが居るから閉じないことにする");
                     }
                 }
             }
         }
 
+        // 自動でドアを開く処理
+        [HarmonyPatch(typeof(Door), "Awake")]
+        public static class AutomaticDoorOpen
+        {
+            private static void Postfix(Door __instance, ref ZNetView ___m_nview)
+            {
+                if (!isEnabled.Value || // MODが無効化されている
+                    __instance.m_keyItem != null || // 対象のドアに鍵が必要
+                    (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt) || // プレイヤーがCrypt内にいる
+                    !AutomaticDoorClose.toggleSwitch) // トグルスイッチでMODが無効化されている
+                {
+                    return;
+                }
+
+                ___m_nview.StartCoroutine(AutoOpenEnumerator(__instance, ___m_nview));
+            }
+
+            private static IEnumerator AutoOpenEnumerator(Door __instance, ZNetView ___m_nview)
+            {
+                bool isAlreadyEntered = false;
+
+                while (true)
+                {
+                    // 一定時間待機
+                    yield return new WaitForSeconds(0.2f);
+
+                    // プレイヤーがCrypt内にいる
+                    if (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt)
+                    {
+                        continue;
+                    }
+
+                    // ログイン中はインスタンスが取得できないので何もしない
+                    Player localPlayer = Player.m_localPlayer;
+                    if (localPlayer == null || __instance == null)
+                    {
+                        continue;
+                    }
+
+                    // すでにドアが開いているときは何もしない
+                    if (___m_nview.GetZDO().GetInt("state", 0) != 0)
+                    {
+                        continue;
+                    }
+
+                    // プレイヤーがドアの範囲内にいる、かつ、初めてプレイヤーが近づいたときにドアを開く
+                    float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
+                    if (distance <= automaticDoorOpenRange.Value && !isAlreadyEntered)
+                    {
+                        __instance.Interact(localPlayer, false);
+                        isAlreadyEntered = true;
+                    }
+                    else if (distance > automaticDoorOpenRange.Value && isAlreadyEntered)
+                    {
+                        isAlreadyEntered = false;
+                    }
+                }
+            }
+        }
+
+        // プレイヤーがCrypt内にいるか？
         [HarmonyPatch(typeof(EnvMan), "SetForceEnvironment")]
         public static class SetForceEnvironmentPatch
         {
             private static void Postfix(string ___m_forceEnv)
             {
-                AutomaticDoor.isInsideCrypt = ___m_forceEnv.Contains("Crypt");
+                AutomaticDoorClose.isInsideCrypt = ___m_forceEnv.Contains("Crypt");
             }
         }
 
+        // ホットキーの処理
         [HarmonyPatch(typeof(Player), "Update")]
         public static class ToggleSwitch
         {
@@ -143,20 +227,24 @@ namespace AutomaticDoorMod
             }
         }
 
+        // ゆーてりてー
         public static class Utils
         {
 
+            // 対象のオブジェクトとプレイヤーの距離を返す
             public static float GetPlayerDistance(GameObject m_doorObject)
             {
                 return Vector3.Distance(Player.m_localPlayer.transform.position, m_doorObject.transform.position);
             }
 
+            // 画面左上にメッセージを出す
             public static void ShowMessage(string message)
             {
                 MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: " + message);
             }
         }
 
+        // 同一クライアントで複数ログインできるようにするやつ1
         [HarmonyPatch(typeof(ZSteamMatchmaking), "VerifySessionTicket")]
         public static class DebugModePatch1
         {
@@ -172,6 +260,7 @@ namespace AutomaticDoorMod
             }
         }
 
+        // 同一クライアントで複数ログインできるようにするやつ2
         [HarmonyPatch(typeof(ZNet), "IsConnected")]
         public static class DebugModePatch2
         {
