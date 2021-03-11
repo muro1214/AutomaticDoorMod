@@ -11,7 +11,7 @@ namespace AutomaticDoorMod
     [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", toolVersion)]
     public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
-        public const string toolVersion = "0.0.4";
+        public const string toolVersion = "0.0.5";
 
         public static ConfigEntry<bool> isEnabled;
         public static ConfigEntry<float> waitForDoorToCloseSeconds;

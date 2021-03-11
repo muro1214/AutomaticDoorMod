@@ -48,3 +48,8 @@ toggleSwitchKey = f10
 * v0.0.2: Disable mod when player is in SunkenCrypt
 * v0.0.3: Disable mod when player is in Crypt -> support for both Forest Crypt and Sunken Crypt
 * v0.0.4: Added hotkeys to enable and disable mod
+* v0.0.5: 'Hotfix' Detecting Crypt is not working. Thanks, @turkoid
+
+## Planned for implementation
+### Next version
+* Implement a function that automatically opens doors
