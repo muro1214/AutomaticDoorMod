@@ -1,5 +1,5 @@
 # AutomaticDoorMod
-This is a mod that automatically closes the door that the player has opened after a certain period of time.
+This mod adds the ability to open and close doors automatically.
 
 ## Demonstration
 ![demo](https://raw.githubusercontent.com/wiki/muro1214/AutomaticDoorMod/images/AutomaticDoor.gif)
