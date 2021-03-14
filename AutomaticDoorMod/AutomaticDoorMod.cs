@@ -14,7 +14,7 @@ namespace AutomaticDoorMod
     {
         public const string toolVersion = "0.1.0";
         // デバッグ用フラグ。リリース時はfalseにする
-        public static bool isDebug = true;
+        public static bool isDebug = false;
 
         // MODが有効化されているか？
         public static ConfigEntry<bool> isEnabled;
@@ -32,6 +32,9 @@ namespace AutomaticDoorMod
 
         // ドアと実行中のコルーチンの組み合わせ
         public static Dictionary<int, Coroutine> coroutinePairs = new Dictionary<int, Coroutine>();
+
+        public static bool isInsideCrypt = false;
+        public static bool toggleSwitch = true;
 
         // デバッグ中のログ表示
         public static void DebugLog(string message)
@@ -60,9 +63,6 @@ namespace AutomaticDoorMod
         [HarmonyPatch(typeof(Door), "Interact")]
         public static class AutomaticDoorClose
         {
-            public static bool isInsideCrypt = false;
-            public static bool toggleSwitch = true;
-
             private static void Postfix(ref Door __instance, ZNetView ___m_nview)
             {
                 if (!isEnabled.Value || // MODが無効化されている
@@ -78,33 +78,30 @@ namespace AutomaticDoorMod
                     ___m_nview.StopCoroutine(coroutinePairs[___m_nview.GetHashCode()]);
                 }
 
-                DebugLog("m_doorObject pos: " + __instance.m_doorObject.transform.position);
-                DebugLog("___m_nview pos: " + ___m_nview.transform.position);
-                // TODO;
-                // プレイヤーがドアの範囲内にいるときは自動で閉じない
-                // 5秒経った後でも離れたタイミングで閉じる？
-
                 Coroutine coroutine = ___m_nview.StartCoroutine(AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
                 coroutinePairs[___m_nview.GetHashCode()] = coroutine;
             }
 
-            private static IEnumerator AutoCloseEnumerator(GameObject m_doorObject, ZNetView ___m_nview)
+            public static IEnumerator AutoCloseEnumerator(GameObject m_doorObject, ZNetView ___m_nview)
             {
                 while (true)
                 {
                     // 一定時間待機
                     yield return new WaitForSeconds(waitForDoorToCloseSeconds.Value);
 
+                    if (!toggleSwitch) // トグルスイッチでMODが無効化されている
+                    {
+                        coroutinePairs.Remove(___m_nview.GetHashCode());
+                        yield break;
+                    }
+
                     // プレイヤーとの距離を取得し、指定された範囲より離れているときはドアを閉じる
                     float distance = Utils.GetPlayerDistance(m_doorObject);
                     if (distance > automaticDoorCloseRange.Value)
                     {
                         ___m_nview.GetZDO().Set("state", 0);
+                        coroutinePairs.Remove(___m_nview.GetHashCode());
                         yield break;
-                    }
-                    else
-                    {
-                        DebugLog("プレイヤーが居るから閉じないことにする");
                     }
                 }
             }
@@ -116,10 +113,7 @@ namespace AutomaticDoorMod
         {
             private static void Postfix(Door __instance, ref ZNetView ___m_nview)
             {
-                if (!isEnabled.Value || // MODが無効化されている
-                    __instance.m_keyItem != null || // 対象のドアに鍵が必要
-                    (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt) || // プレイヤーがCrypt内にいる
-                    !AutomaticDoorClose.toggleSwitch) // トグルスイッチでMODが無効化されている
+                if (!isEnabled.Value) // MODが無効化されている
                 {
                     return;
                 }
@@ -136,22 +130,29 @@ namespace AutomaticDoorMod
                     // 一定時間待機
                     yield return new WaitForSeconds(0.2f);
 
-                    // プレイヤーがCrypt内にいる
-                    if (disableAutomaticDoorOpenInCrypt.Value && AutomaticDoorClose.isInsideCrypt)
+                    if (__instance.m_keyItem != null || // 対象のドアに鍵が必要
+                        (disableAutomaticDoorOpenInCrypt.Value && isInsideCrypt) || // プレイヤーがCrypt内にいる
+                        !toggleSwitch) // トグルスイッチでMODが無効化されている
                     {
                         continue;
                     }
 
                     // ログイン中はインスタンスが取得できないので何もしない
                     Player localPlayer = Player.m_localPlayer;
-                    if (localPlayer == null || __instance == null)
+                    if (localPlayer == null || __instance == null || ___m_nview == null)
                     {
                         continue;
                     }
 
-                    // すでにドアが開いているときは何もしない
+                    // すでにドアが開いているときは一定時間後に閉じる処理を起動
                     if (___m_nview.GetZDO().GetInt("state", 0) != 0)
                     {
+                        if (!coroutinePairs.ContainsKey(___m_nview.GetHashCode()))
+                        {
+                            DebugLog("コルーチン起動");
+                            Coroutine coroutine = ___m_nview.StartCoroutine(AutomaticDoorClose.AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
+                            coroutinePairs[___m_nview.GetHashCode()] = coroutine;
+                        }
                         continue;
                     }
 
@@ -176,7 +177,7 @@ namespace AutomaticDoorMod
         {
             private static void Postfix(string ___m_forceEnv)
             {
-                AutomaticDoorClose.isInsideCrypt = ___m_forceEnv.Contains("Crypt");
+                isInsideCrypt = ___m_forceEnv.Contains("Crypt");
             }
         }
 
@@ -214,8 +215,8 @@ namespace AutomaticDoorMod
 
                 if (IsToggleKeyPressed())
                 {
-                    AutomaticDoorClose.toggleSwitch = !AutomaticDoorClose.toggleSwitch;
-                    if (AutomaticDoorClose.toggleSwitch)
+                    toggleSwitch = !toggleSwitch;
+                    if (toggleSwitch)
                     {
                         Utils.ShowMessage("Enabled");
                     }
