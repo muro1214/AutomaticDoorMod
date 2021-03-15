@@ -12,9 +12,9 @@ namespace AutomaticDoorMod
     [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", toolVersion)]
     public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
-        public const string toolVersion = "0.1.1";
+        public const string toolVersion = "0.2.0";
         // デバッグ用フラグ。リリース時はfalseにする
-        private static bool isDebug = true;
+        private static bool isDebug = false;
 
         // MODが有効化されているか？
         public static ConfigEntry<bool> isEnabled;
