@@ -12,49 +12,67 @@ namespace AutomaticDoorMod
     [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", toolVersion)]
     public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
-        public const string toolVersion = "0.1.0";
+        public const string toolVersion = "0.1.1.8";
         // デバッグ用フラグ。リリース時はfalseにする
-        public static bool isDebug = false;
+        private static bool isDebug = true;
 
         // MODが有効化されているか？
         public static ConfigEntry<bool> isEnabled;
+
         // ドアを開いてから自動で閉じるまでの待ち時間
         public static ConfigEntry<float> waitForDoorToCloseSeconds;
-        // この範囲内にプレイヤーが居るときはドアを閉じない
+
+        // この範囲内にプレイヤーが居るときはドアを閉じない(廃止)
         public static ConfigEntry<float> automaticDoorCloseRange;
-        // この範囲内にプレイヤーが居るときにドアを自動で開く
+        // 以下のドア種別ごとのレンジに変更
+        public static ConfigEntry<float> automaticDoorCloseRange_Door;
+        public static ConfigEntry<float> automaticDoorCloseRange_Gate;
+        public static ConfigEntry<float> automaticDoorCloseRange_IronGate;
+
+        // この範囲内にプレイヤーが居るときにドアを自動で開く(廃止)
         public static ConfigEntry<float> automaticDoorOpenRange;
+        // 以下のドア種別ごとのレンジに変更
+        public static ConfigEntry<float> automaticDoorOpenRange_Door;
+        public static ConfigEntry<float> automaticDoorOpenRange_Gate;
+        public static ConfigEntry<float> automaticDoorOpenRange_IronGate;
+
         // Crypt内にいるときに自動でドアを開くか？
         public static ConfigEntry<bool> disableAutomaticDoorOpenInCrypt;
+
         // ホットキー
         public static ConfigEntry<string> toggleSwitchModKey;
         public static ConfigEntry<string> toggleSwitchKey;
 
         // ドアと実行中のコルーチンの組み合わせ
-        public static Dictionary<int, Coroutine> coroutinePairs = new Dictionary<int, Coroutine>();
+        private static Dictionary<int, Coroutine> coroutinePairs = new Dictionary<int, Coroutine>();
 
-        public static bool isInsideCrypt = false;
-        public static bool toggleSwitch = true;
+        private static bool isInsideCrypt = false;
+        private static bool toggleSwitch = true;
 
-        // デバッグ中のログ表示
-        public static void DebugLog(string message)
-        {
-            if (isDebug)
-            {
-                Debug.Log(message);
-            }
-        }
+        private static AutomaticDoorModPlugin instance;
 
         // プラグインの初期設定
         private void Awake()
         {
+            instance = this;
+
             isEnabled = Config.Bind<bool>("General", "IsEnabled", true, "If you set this to false, this mod will be disabled.");
+
             waitForDoorToCloseSeconds = Config.Bind<float>("General", "waitForDoorToCloseSeconds", 5.0f, "Specify the time in seconds to wait for the door to close automatically.");
-            automaticDoorCloseRange = Config.Bind<float>("General", "automaticDoorCloseRange", 4.0f, "Doors DO NOT CLOSE automatically when a player is in range.\nIf set to 0, the door will automatically close regardless of distance.");
-            automaticDoorOpenRange = Config.Bind<float>("General", "automaticDoorOpenRange", 4.0f, "When a player is within range, the door will open automatically.\nIf set to 0, this feature is disabled.");
+            automaticDoorCloseRange = Config.Bind<float>("General", "automaticDoorCloseRange", 0.0f, "Obsolete");
+            automaticDoorCloseRange_Door = Config.Bind<float>("General", "automaticDoorCloseRange_Door", 3.0f, "DOOR DO NOT CLOSE automatically when a player is in range.\nIf set to 0, the door will automatically close regardless of distance.");
+            automaticDoorCloseRange_Gate = Config.Bind<float>("General", "automaticDoorCloseRange_Gate", 4.0f, "GATE DO NOT CLOSE automatically when a player is in range.\nIf set to 0, the door will automatically close regardless of distance.");
+            automaticDoorCloseRange_IronGate = Config.Bind<float>("General", "automaticDoorCloseRange_IronGate", 4.0f, "IRON GATE DO NOT CLOSE automatically when a player is in range.\nIf set to 0, the door will automatically close regardless of distance.");
+
+            automaticDoorOpenRange = Config.Bind<float>("General", "automaticDoorOpenRange", 0.0f, "Obsolete");
+            automaticDoorOpenRange_Door = Config.Bind<float>("General", "automaticDoorOpenRange_Door", 3.0f, "When a player is within range, the DOOR will open automatically.\nIf set to 0, this feature is disabled.");
+            automaticDoorOpenRange_Gate = Config.Bind<float>("General", "automaticDoorOpenRange_Gate", 4.0f, "When a player is within range, the GATE will open automatically.\nIf set to 0, this feature is disabled.");
+            automaticDoorOpenRange_IronGate = Config.Bind<float>("General", "automaticDoorOpenRange_IronGate", 4.0f, "When a player is within range, the IRON GATE will open automatically.\nIf set to 0, this feature is disabled.");
+
             disableAutomaticDoorOpenInCrypt = Config.Bind<bool>("General", "disableAutomaticDoorOpenInCrypt", true, "If set to true, disables the setting that automatically opens the door when you are inside Crypt.");
-            toggleSwitchModKey = Config.Bind<string>("General", "toggleSwitchModKey", "left alt", "Specifies the MOD Key of toggleSwitchKey. If left blank, it is not used.");
-            toggleSwitchKey = Config.Bind<string>("General", "toggleSwitchKey", "f10", "Toggles between enabled and disabled mods when this key is pressed.");
+
+            toggleSwitchModKey = Config.Bind<string>("General", "toggleSwitchModKey", "left alt", "Specifies the MOD Key of toggleSwitchKey. If left blank, it is not used.\nIf both toggleSwitchModKey and toggleSwitchKey are left blank, the hotkey function will be disabled.");
+            toggleSwitchKey = Config.Bind<string>("General", "toggleSwitchKey", "f10", "Toggles between enabled and disabled mods when this key is pressed.\nIf both toggleSwitchModKey and toggleSwitchKey are left blank, the hotkey function will be disabled.");
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
         }
@@ -78,11 +96,11 @@ namespace AutomaticDoorMod
                     ___m_nview.StopCoroutine(coroutinePairs[___m_nview.GetHashCode()]);
                 }
 
-                Coroutine coroutine = ___m_nview.StartCoroutine(AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
+                Coroutine coroutine = ___m_nview.StartCoroutine(AutoCloseEnumerator(__instance, ___m_nview));
                 coroutinePairs[___m_nview.GetHashCode()] = coroutine;
             }
 
-            public static IEnumerator AutoCloseEnumerator(GameObject m_doorObject, ZNetView ___m_nview)
+            public static IEnumerator AutoCloseEnumerator(Door __instance, ZNetView ___m_nview)
             {
                 while (true)
                 {
@@ -95,9 +113,13 @@ namespace AutomaticDoorMod
                         yield break;
                     }
 
+                    // ドア種別ごとの設定値
+                    String doorName = __instance.m_name;
+                    float distanceSetting = Utils.GetSettingRangeByDoor(doorName, false);
+
                     // プレイヤーとの距離を取得し、指定された範囲より離れているときはドアを閉じる
-                    float distance = Utils.GetPlayerDistance(m_doorObject);
-                    if (distance > automaticDoorCloseRange.Value)
+                    float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
+                    if (distance > distanceSetting)
                     {
                         ___m_nview.GetZDO().Set("state", 0);
                         coroutinePairs.Remove(___m_nview.GetHashCode());
@@ -145,25 +167,31 @@ namespace AutomaticDoorMod
                     }
 
                     // すでにドアが開いているときは一定時間後に閉じる処理を起動
+                    // TODO; Crypt内でも閉じちゃうかも
                     if (___m_nview.GetZDO().GetInt("state", 0) != 0)
                     {
-                        if (!coroutinePairs.ContainsKey(___m_nview.GetHashCode()))
+                        if (!coroutinePairs.ContainsKey(___m_nview.GetHashCode()) && !isInsideCrypt)
                         {
                             DebugLog("コルーチン起動");
-                            Coroutine coroutine = ___m_nview.StartCoroutine(AutomaticDoorClose.AutoCloseEnumerator(__instance.m_doorObject, ___m_nview));
+                            Coroutine coroutine = ___m_nview.StartCoroutine(AutomaticDoorClose.AutoCloseEnumerator(__instance, ___m_nview));
                             coroutinePairs[___m_nview.GetHashCode()] = coroutine;
                         }
                         continue;
                     }
 
+                    // ドア種別ごとのdistanceサポート
+                    String doorName = __instance.m_name;
+                    float distanceSetting = Utils.GetSettingRangeByDoor(doorName, true);
+
                     // プレイヤーがドアの範囲内にいる、かつ、初めてプレイヤーが近づいたときにドアを開く
                     float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
-                    if (distance <= automaticDoorOpenRange.Value && !isAlreadyEntered)
+                    if (distance <= distanceSetting && !isAlreadyEntered)
                     {
+                        DebugLog("___m_nview.name: " + ___m_nview.name);
                         __instance.Interact(localPlayer, false);
                         isAlreadyEntered = true;
                     }
-                    else if (distance > automaticDoorOpenRange.Value && isAlreadyEntered)
+                    else if (distance > distanceSetting && isAlreadyEntered)
                     {
                         isAlreadyEntered = false;
                     }
@@ -189,6 +217,12 @@ namespace AutomaticDoorMod
             {
                 string modKey = toggleSwitchModKey.Value.ToLower();
                 string key = toggleSwitchKey.Value.ToLower();
+
+                // 両方空白の場合は何もしない
+                if(modKey.Equals("") && key.Equals(""))
+                {
+                    return false;
+                }
 
                 if(modKey.Equals("") || Input.GetKey(modKey))
                 {
@@ -231,7 +265,6 @@ namespace AutomaticDoorMod
         // ゆーてりてー
         public static class Utils
         {
-
             // 対象のオブジェクトとプレイヤーの距離を返す
             public static float GetPlayerDistance(GameObject m_doorObject)
             {
@@ -242,6 +275,41 @@ namespace AutomaticDoorMod
             public static void ShowMessage(string message)
             {
                 MessageHud.instance.ShowMessage(MessageHud.MessageType.TopLeft, "Automatic Door Mod: " + message);
+            }
+
+            // ドア種別ごとの設定値を返す
+            public static float GetSettingRangeByDoor(string doorName, bool isOpen)
+            {
+                // [Info: Unity Log] __instance.m_name: Door
+                // [Info: Unity Log] __instance.m_name: Gate
+                // [Info: Unity Log] __instance.m_name: $piece_irongate
+
+                float distanceSetting = 0.0f;
+                if (doorName.Equals("Door"))
+                {
+                    distanceSetting = isOpen ? automaticDoorOpenRange_Door.Value : automaticDoorCloseRange_Door.Value;
+                }
+                else if (doorName.Equals("Gate"))
+                {
+                    distanceSetting = isOpen ? automaticDoorOpenRange_Gate.Value : automaticDoorCloseRange_Gate.Value;
+                }
+                else if (doorName.Equals("$piece_irongate"))
+                {
+                    distanceSetting = isOpen ? automaticDoorOpenRange_IronGate.Value : automaticDoorCloseRange_IronGate.Value;
+                }
+
+                return distanceSetting;
+            }
+        }
+
+        /** ---- 以下デバッグ用に使用するやつ -- **/
+
+        // デバッグ中のログ表示
+        public static void DebugLog(string message)
+        {
+            if (isDebug)
+            {
+                Debug.Log(message);
             }
         }
 
@@ -270,6 +338,29 @@ namespace AutomaticDoorMod
                 if (isDebug)
                 {
                     __result = false;
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(Console), "InputText")]
+        public static class ConfigReloader
+        {
+            private static bool Prefix(ref Console __instance)
+            {
+                if(!isEnabled.Value || !isDebug)
+                {
+                    return true;
+                }
+
+                string text = __instance.m_input.text;
+                if(text.ToLower().Equals("/automatic_door_mod reload"))
+                {
+                    instance.Config.Reload();
+                    instance.Config.Save();
+                    Traverse.Create(__instance).Method("AddString", new object[] { "Reload muro1214.valheim_mods.automatic_door.cfg" }).GetValue();
                     return false;
                 }
 
