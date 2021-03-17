@@ -12,9 +12,9 @@ namespace AutomaticDoorMod
     [BepInPlugin("muro1214.valheim_mods.automatic_door", "Automatic Door Mod", toolVersion)]
     public class AutomaticDoorModPlugin : BaseUnityPlugin
     {
-        public const string toolVersion = "0.2.0";
+        public const string toolVersion = "0.2.1";
         // デバッグ用フラグ。リリース時はfalseにする
-        private static bool isDebug = false;
+        private static bool isDebug = true;
 
         // MODが有効化されているか？
         public static ConfigEntry<bool> isEnabled;
@@ -134,9 +134,11 @@ namespace AutomaticDoorMod
         }
 
         // 自動でドアを開く処理
-        [HarmonyPatch(typeof(Door), "Awake")]
+        [HarmonyPatch(typeof(Door), "UpdateState")]
         public static class AutomaticDoorOpen
         {
+            private static Dictionary<int, bool> isAlreadyEnteredDict = new Dictionary<int, bool>();
+
             private static void Postfix(Door __instance, ref ZNetView ___m_nview)
             {
                 if (!isEnabled.Value) // MODが無効化されている
@@ -144,61 +146,50 @@ namespace AutomaticDoorMod
                     return;
                 }
 
-                ___m_nview.StartCoroutine(AutoOpenEnumerator(__instance, ___m_nview));
-            }
-
-            private static IEnumerator AutoOpenEnumerator(Door __instance, ZNetView ___m_nview)
-            {
-                bool isAlreadyEntered = false;
-
-                while (true)
+                // ログイン中はインスタンスが取得できないので何もしない
+                Player localPlayer = Player.m_localPlayer;
+                if (localPlayer == null || __instance == null || ___m_nview == null)
                 {
-                    // 一定時間待機
-                    yield return new WaitForSeconds(0.2f);
+                    return;
+                }
 
-                    // ログイン中はインスタンスが取得できないので何もしない
-                    Player localPlayer = Player.m_localPlayer;
-                    if (localPlayer == null || __instance == null || ___m_nview == null)
+                String doorName = ___m_nview.GetPrefabName();
+                int hashCode = ___m_nview.GetHashCode();
+
+                if (__instance.m_keyItem != null || // 対象のドアに鍵が必要
+                    (disableAutomaticDoorOpenInCrypt.Value && isInsideCrypt) || // プレイヤーがCrypt内にいる
+                    !toggleSwitch) // トグルスイッチでMODが無効化されている
+                {
+                    return;
+                }
+
+                // すでにドアが開いているときは一定時間後に閉じる処理を起動
+                if (___m_nview.GetZDO().GetInt("state", 0) != 0)
+                {
+                    if (!coroutinePairs.ContainsKey(hashCode) && // まだコルーチンが起動していない
+                        !isInsideCrypt && // プレイヤーがCrypt内にいない
+                        !doorName.StartsWith("dungeon_")) // ドアのプレハブ名がdungeon_で始まってない
                     {
-                        continue;
+                        Coroutine coroutine = ___m_nview.StartCoroutine(AutomaticDoorClose.AutoCloseEnumerator(__instance, ___m_nview));
+                        coroutinePairs[hashCode] = coroutine;
                     }
+                    return;
+                }
 
-                    String doorName = ___m_nview.GetPrefabName();
+                // ドア種別ごとのdistanceサポート
+                float distanceSetting = Utils.GetSettingRangeByDoor(doorName, true);
 
-                    if (__instance.m_keyItem != null || // 対象のドアに鍵が必要
-                        (disableAutomaticDoorOpenInCrypt.Value && isInsideCrypt) || // プレイヤーがCrypt内にいる
-                        !toggleSwitch) // トグルスイッチでMODが無効化されている
-                    {
-                        continue;
-                    }
-
-                    // すでにドアが開いているときは一定時間後に閉じる処理を起動
-                    if (___m_nview.GetZDO().GetInt("state", 0) != 0)
-                    {
-                        if (!coroutinePairs.ContainsKey(___m_nview.GetHashCode()) && // まだコルーチンが起動していない
-                            !isInsideCrypt && // プレイヤーがCrypt内にいない
-                            !doorName.StartsWith("dungeon_")) // ドアのプレハブ名がdungeon_で始まってない
-                        {
-                            Coroutine coroutine = ___m_nview.StartCoroutine(AutomaticDoorClose.AutoCloseEnumerator(__instance, ___m_nview));
-                            coroutinePairs[___m_nview.GetHashCode()] = coroutine;
-                        }
-                        continue;
-                    }
-
-                    // ドア種別ごとのdistanceサポート
-                    float distanceSetting = Utils.GetSettingRangeByDoor(doorName, true);
-
-                    // プレイヤーがドアの範囲内にいる、かつ、初めてプレイヤーが近づいたときにドアを開く
-                    float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
-                    if (distance <= distanceSetting && !isAlreadyEntered)
-                    {
-                        __instance.Interact(localPlayer, false);
-                        isAlreadyEntered = true;
-                    }
-                    else if (distance > distanceSetting && isAlreadyEntered)
-                    {
-                        isAlreadyEntered = false;
-                    }
+                // プレイヤーがドアの範囲内にいる、かつ、初めてプレイヤーが近づいたときにドアを開く
+                float distance = Utils.GetPlayerDistance(__instance.m_doorObject);
+                isAlreadyEnteredDict.TryGetValue(hashCode, out bool result);
+                if (distance <= distanceSetting && !result)
+                {
+                    __instance.Interact(localPlayer, false);
+                    isAlreadyEnteredDict[hashCode] = true;
+                }
+                else if (distance > distanceSetting)
+                {
+                    isAlreadyEnteredDict[hashCode] = false;
                 }
             }
         }
